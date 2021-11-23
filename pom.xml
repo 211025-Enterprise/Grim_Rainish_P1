@@ -23,6 +23,8 @@
     <distributionManagement>
     <repository>
     <id>github</id>
+    <name>GitHub RainishV1 Apache Maven Packages</name>
+        <url>https://maven.pkg.github.com/RainishV1/Grim_Rainish_p1</url>
     </repository>
     </distributionManagement>
 
