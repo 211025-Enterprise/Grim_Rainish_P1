@@ -1,8 +1,7 @@
 package services;
 
-import models.annotation.Field;
 import models.annotation.Grim;
-import models.constraints.GrimDBConstraints;
+import models.annotation.PRIMARYKEY;
 import models.exceptions.GrimException;
 import java.sql.*;
 import java.lang.reflect.*;
@@ -24,112 +23,63 @@ public class GenericDao<T>
      * @return
      * @throws IllegalAccessException
      */
-    public int createTable(Class<?> Classy, T obj) throws IllegalAccessException
+    public boolean createTable(Class<?> Classy, T obj) throws IllegalAccessException
     {
-        int val = -1;
-        String tbleName;
-        if (Classy.isAnnotationPresent(Grim.class))
+        if (!Orm.isClassValid(Classy))
         {
-            tbleName = Classy.getDeclaredAnnotation(Grim.class).table();
+            return false;
         }
-        else
+        String tableName = Classy.getSimpleName();
+        StringBuilder hfQuery = new StringBuilder();
+        StringBuilder hfQuery2 = new StringBuilder();
+        Field[] fields = Classy.getDeclaredFields();
+        hfQuery.append("CREATE TABLE IF NOT EXISTS \"").append(tableName).append("\"(");
+        for (Field field : fields)
         {
-            tbleName = Classy.getSimpleName();
-        }
-        java.lang.reflect.Field[] fields = Classy.getDeclaredFields();
-        StringBuilder columns = new StringBuilder();
-        StringBuilder values = new StringBuilder();
-        StringBuilder tble = new StringBuilder();
-        tble.append("CREATE TABLE IF NOT EXISTS").append(tbleName).append("\n");
-        boolean pKey = false;
-        for (java.lang.reflect.Field field : fields)
-        {
-            Field fiel = field.getAnnotation(Field.class);
-            String columnname = field.getName().toLowerCase();
-            if (fiel != null)
+            if (Arrays.toString(field.getAnnotations()).contains("PrimaryKey"))
             {
-                columnname = field.getName().toLowerCase();
-            }
-            tble.append(columnname).append(" ");
-            columns.append(columnname);
-            tble.append(convertType(field.getType())).append(" ");
-            if (fiel != null)
-            {
-                GrimDBConstraints[] grimDBConstraints = fiel.constraints();
-                for (GrimDBConstraints c : grimDBConstraints)
-                {
-                    if(c.equals(GrimDBConstraints.Unique))
-                    {
-                        tble.append("UNIQUE");
-                    }
-                    if(c.equals(GrimDBConstraints.NOTNULL))
-                    {
-                        tble.append("NOTNULL");
-                    }
-                    if(c.equals(GrimDBConstraints.PrimaryKey))
-                    {
-                        tble.append("PrimaryKey");
-                    }
-                    if (!pKey)
-                    {
-                        tble.append("Primary Key");
-                        pKey = true;
-                    }
-                }
-            }
-            values.append("?");
-            columns.append(",");
-            values.append(",");
-            tble.append(",\n");
-        }
-        String sql = tble.toString();
-        String query = "INSERT INTO " + tbleName + " (" + columns + ") Values (" + values + ")";
-        try (Connection connection= DBConnector.getConnection();
-             PreparedStatement create =  connection.prepareStatement(sql);
-             PreparedStatement inserting =  connection.prepareStatement(query);)
-        {
-            create.executeUpdate();
-            int locator = 1;
-            for (java.lang.reflect.Field field:fields)
-            {
-                if (convertType(field.getType()).equals(""))
-                {
-                    continue;
-                }
-                field.setAccessible(true);
-                if(field.getType().getTypeName().equals("boolean"))
-                {
-                    inserting.setBoolean(locator++,field.getBoolean(obj));
-                }
-                else if(field.getType().getTypeName().equals("int"))
-                {
-                    inserting.setInt(locator++,field.getInt(obj));
-                }
-                else if(field.getType().getTypeName().equals("float"))
-                {
-                    inserting.setFloat(locator++,field.getFloat(obj));
-                }
-                else if(field.getType().getTypeName().equals("double"))
-                {
-                    inserting.setDouble(locator++,field.getDouble(obj));
-                }
+                hfQuery2.append(field.getName()).append(" ");
+                if (field.getDeclaredAnnotation(PRIMARYKEY.class).isSerial())
+                    hfQuery2.append("serial");
                 else
+                    hfQuery2.append(Orm.convertType(field.getType()));
+                hfQuery2.append(" primary key");
+            }
+        }
+        for (Field field : fields)
+        {
+            String fieldAnnotations = Arrays.toString(field.getAnnotations());
+            if (!fieldAnnotations.contains("PrimaryKey") && (fieldAnnotations.contains("Column") ||
+                    fieldAnnotations.contains("NotNull") || fieldAnnotations.contains("Unique")))
+            {
+                if (hfQuery2.length() != 0)
                 {
-                    Object ob = field.get(obj);
-                    inserting.setString(locator++, (ob != null) ? ob.toString(): "null");
+                    hfQuery.append(", ");
+                }
+                hfQuery2.append("\"").append(field.getName()).append("\" ").
+                        append(Orm.convertType(field.getType())).append(" ");
+                if (fieldAnnotations.contains("Unique")) {
+                    hfQuery2.append("Unique ");
+                }
+                if (fieldAnnotations.contains("NotNull"))
+                {
+                    hfQuery2.append("not null ");
                 }
             }
-            val = inserting.executeUpdate();
         }
-        catch (SQLException e)
-        {
-            e.printStackTrace();
-        }
-
-        return val;
+        hfQuery2.append(");");
+        return true;
     }
 
-
+    /**
+     *
+     * @param Classy
+     * @param matchingValues
+     * @param matchingKeys
+     * @param connection
+     * @return
+     * @throws GrimException
+     */
 
     public List<?> read(Class<?> Classy, Object[] matchingValues, Field[] matchingKeys, Connection connection)
             throws GrimException
@@ -165,61 +115,18 @@ public class GenericDao<T>
                 {
                     return (List<?>) construct.newInstance();
                 }
-
                 T obj = (T) construct.newInstance();
                 int location = 1;
-                for (java.lang.reflect.Field field : fields)
+                for (Field field : fields)
                 {
-                    field.setAccessible(true);
-                    if(field.getType().getTypeName().equals("boolean"))
-                    {
-                        field.setBoolean(obj, resultSet.getBoolean(location++));
-                    }
-                    else if(field.getType().getTypeName().equals("int"))
-                    {
-                        field.setInt(obj,resultSet.getInt(location++));
-                    }
-                    else if(field.getType().getTypeName().equals("float"))
-                    {
-                        field.setFloat(obj,resultSet.getFloat(location++));
-                    }
-                    else if(field.getType().getTypeName().equals("double"))
-                    {
-                        field.setDouble(obj,resultSet.getDouble(location++));
-                    }
-                    else
-                    {
-                        field.set(obj, resultSet.getString(location++));
-                    }
-                }
-                for (Object ob : matchingValues)
-                {
-                    if (convertType(obj.getClass()).equals(""))
+                    if (Orm.convertType(field.getType()).equals(""))
                     {
                         continue;
                     }
-                    if(ob.getClass().getTypeName().equals("boolean"))
-                    {
-                        pstmt.setBoolean(location++, (Boolean) ob);
-                    }
-                    else if(ob.getClass().getTypeName().equals("int"))
-                    {
-                        pstmt.setInt(location++, (Integer) ob);
-                    }
-                    else if(ob.getClass().getTypeName().equals("float"))
-                    {
-                        pstmt.setFloat(location++, (Float) ob);
-                    }
-                    else if(ob.getClass().getTypeName().equals("double"))
-                    {
-                        pstmt.setDouble(location++, (Double) ob);
-                    }
-                    else
-                    {
-                        pstmt.setString(location++, (String) ob);
-                    }
+                    field.setAccessible(true);
+                    field.set(obj, resultSet.getObject(location++));
                 }
-                val.add(obj);
+                    val.add(obj);
             }
         }
         catch (SQLException | IllegalAccessException | InstantiationException | InvocationTargetException e) {
@@ -241,7 +148,7 @@ public class GenericDao<T>
         {
             tbleName= Classy.getDeclaredAnnotation(Grim.class).table();
         }
-        java.lang.reflect.Field[] fields = Classy.getDeclaredFields();
+        Field[] fields = Classy.getDeclaredFields();
         String query = "SELECT * FROM " + tbleName;
         try (Connection connection = DBConnector.getConnection();
              PreparedStatement pstmt =  connection.prepareStatement(query); )
@@ -254,33 +161,11 @@ public class GenericDao<T>
                 constructor.setAccessible(true);
                 T obj = (T) constructor.newInstance();
                 int location = 1;
-                for (java.lang.reflect.Field field : fields)
+                for (Field field:fields)
                 {
-                    if (convertType(field.getType()).equals(""))
-                    {
-                        continue;
-                    }
+                    if (Orm.convertType(field.getType()).equals("")){continue;}
                     field.setAccessible(true);
-                    if(field.getType().getTypeName().equals("boolean"))
-                    {
-                        field.setBoolean(obj,resultSet.getBoolean(location++));
-                    }
-                    else if(field.getType().getTypeName().equals("int"))
-                    {
-                        field.setInt(obj,resultSet.getInt(location++));
-                    }
-                    else if(field.getType().getTypeName().equals("float"))
-                    {
-                        field.setFloat(obj,resultSet.getFloat(location++));
-                    }
-                    else if(field.getType().getTypeName().equals("double"))
-                    {
-                        field.setDouble(obj,resultSet.getDouble(location++));
-                    }
-                    else
-                    {
-                        field.set(obj, resultSet.getString(location++));
-                    }
+                    field.set(obj,resultSet.getObject(location++));
                 }
                 printAllInfo.add(obj);
             }
@@ -301,10 +186,10 @@ public class GenericDao<T>
      * @throws GrimException
      */
 
-    public int update(Class<?> Classy, Object[] changeValues, Field[] changeKeys,
-                      Object[] matchingValues, Field[] matchingKeys) throws GrimException
+    public List<T> update(Class<?> Classy, Object[] changeValues, Field[] changeKeys,
+                          Object[] matchingValues, Field[] matchingKeys) throws GrimException
     {
-        int output = -1;
+        List<T> output = null;
         String tbleName;
         if (matchingValues.length != matchingKeys.length)
         {
@@ -327,68 +212,44 @@ public class GenericDao<T>
         StringBuilder vals = new StringBuilder();
         String query = "UPDATE "+ tbleName + " SET " + columns + "=" + vals + " WHERE " +
                 pKey.toString();
-        try (Connection connection= DBConnector.getConnection();
+        try (Connection connection = DBConnector.getConnection();
              PreparedStatement pstmt =  connection.prepareStatement(query); )
         {
             int location = 1;
-            for (Object obj : changeValues)
+            for (Object o:changeValues)
             {
-                if (convertType(obj.getClass()).equals(""))
+                if (Orm.convertType(o.getClass()).equals(""))
                 {
                     continue;
                 }
-                if(obj.getClass().getTypeName().toString().equals("Boolean"))
-                {
-                    pstmt.setBoolean(location++, (Boolean) obj);
-                }
-                else if(obj.getClass().getTypeName().toString().equals("Int"))
-                {
-                    pstmt.setInt(location++, (Integer) obj);
-                }
-                else if(obj.getClass().getTypeName().toString().equals("Float"))
-                {
-                    pstmt.setFloat(location++, (Float) obj);
-                }
-                else if(obj.getClass().getTypeName().toString().equals("Double"))
-                {
-                    pstmt.setDouble(location++, (Double) obj);
-                }
-                else
-                {
-                    pstmt.setString(location++, (String) obj);
-                }
+                pstmt.setObject(location++, o);
             }
-            for (Object obj : matchingValues)
+            for (Object o:matchingValues)
             {
-                if (convertType(obj.getClass()).equals(""))
+                if (Orm.convertType(o.getClass()).equals(""))
                 {
                     continue;
                 }
-                if(obj.getClass().getTypeName().equals("boolean"))
-                {
-                    pstmt.setBoolean(location++, (Boolean) obj);
-                }
-                else if(obj.getClass().getTypeName().equals("int"))
-                {
-                    pstmt.setInt(location++, (Integer) obj);
-                }
-                else if(obj.getClass().getTypeName().equals("float"))
-                {
-                    pstmt.setFloat(location++, (Float) obj);
-                }
-                else if(obj.getClass().getTypeName().equals("double"))
-                {
-                    pstmt.setDouble(location++, (Double) obj);
-                }
-                else
-                {
-                    pstmt.setString(location++, (String) obj);
-                }
+                pstmt.setObject(location++, o);
             }
             System.out.println(pstmt);
-            output = pstmt.executeUpdate();
+            pstmt.executeUpdate();
+            ResultSet resultSet = pstmt.getResultSet();
+            output = new ArrayList<>();
+            while (resultSet.next()) {
+                Constructor<?> constructor = Arrays.stream(Classy.getDeclaredConstructors()).
+                        filter(x -> x.getParameterCount() == 0).findFirst().orElse(null);
+                constructor.setAccessible(true);
+                T obj = (T) constructor.newInstance();
+                int i = 1;
+                for (Field field : obj.getClass().getDeclaredFields())
+                {
+                    field.set(obj, resultSet.getObject(i++));
+                }
+                output.add(obj);
+            }
         }
-        catch (SQLException e)
+        catch (SQLException | IllegalAccessException | InstantiationException | InvocationTargetException e)
         {
             e.printStackTrace();
         }
@@ -403,7 +264,8 @@ public class GenericDao<T>
      * @return
      * @throws GrimException
      */
-    public int delete(Class<?> Classy, Object[] matchingValues, Field[] matchingKeys) throws GrimException
+    public int delete(Class<?> Classy, Object[] matchingValues, Field[] matchingKeys, Connection connect)
+            throws GrimException
     {
         if (matchingValues.length != matchingKeys.length)
         {
@@ -422,36 +284,16 @@ public class GenericDao<T>
         java.lang.reflect.Field[] fiel = Classy.getDeclaredFields();
         StringBuilder key = new StringBuilder();
         String query = "DELETE FROM " + tbleName + " WHERE " + key.toString();
-        try (Connection connection= DBConnector.getConnection();
-             PreparedStatement pstmt =  connection.prepareStatement(query); )
+        try ( PreparedStatement pstmt =  connect.prepareStatement(query); )
         {
-            int location = 1;
-            for (Object obj : matchingValues)
+            int loc = 1;
+            for (Object o : matchingValues)
             {
-                if (convertType(obj.getClass()).equals(""))
+                if (Orm.convertType(o.getClass()).equals(""))
                 {
                     continue;
                 }
-                if(obj.getClass().getTypeName().equals("boolean"))
-                {
-                    pstmt.setBoolean(location++, (Boolean) obj);
-                }
-                else if(obj.getClass().getTypeName().equals("int"))
-                {
-                    pstmt.setInt(location++, (Integer) obj);
-                }
-                else if(obj.getClass().getTypeName().equals("float"))
-                {
-                    pstmt.setFloat(location++, (Float) obj);
-                }
-                else if(obj.getClass().getTypeName().equals("double"))
-                {
-                    pstmt.setDouble(location++, (Double) obj);
-                }
-                else
-                {
-                    pstmt.setString(location++, (String) obj);
-                }
+                 pstmt.setObject(loc++, o);
             }
             val = pstmt.executeUpdate();
         }
@@ -460,35 +302,6 @@ public class GenericDao<T>
             e.printStackTrace();
         }
         return val;
-    }
-
-    /**
-     *
-     * @param dataType
-     * @return
-     */
-    private static String convertType(Type dataType)
-    {
-        switch (dataType.getTypeName())
-        {
-            case "boolean":
-            case "java.lang.Boolean":
-                return "bool";
-            case "int":
-            case "java.lang.Integer":
-                return "int";
-            case "float":
-            case "java.lang.Float":
-                return "float";
-            case "double":
-            case "java.lang.Double":
-                return "double";
-        }
-        if 	(dataType.getTypeName().equals("java.lang.String"))
-        {
-            return "text";
-        }
-        return "";
     }
 
     public static <T> void getAnnotation(Class<T> clazz)

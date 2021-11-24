@@ -9,7 +9,7 @@ import java.lang.annotation.*;
 /**
  *
  */
-public @interface Field
+public @interface Column
 {
     public String Name();
     GrimDBConstraints[] constraints();
