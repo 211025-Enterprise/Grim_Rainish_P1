@@ -304,12 +304,39 @@ public class GenericDao<T>
         return val;
     }
 
-    public static <T> void getAnnotation(Class<T> clazz)
+    public static void dropTable(Class<?> classy)
     {
-        java.lang.reflect.Field[] fields = clazz.getFields();
-        for (java.lang.reflect.Field field : fields)
+        String query = "Drop  table \"" + classy.getSimpleName() + "\"";
+        try (Connection conn = (Connection) DBConnector.getInstance())
         {
-            System.out.println("Annotation: " + Arrays.toString(field.getAnnotations()));
+            PreparedStatement statement = conn.prepareStatement(query);
+            statement.execute();
         }
+        catch (SQLException e)
+        {
+            e.printStackTrace();
+        }
+    }
+
+    public static boolean doesTableExist(Class<?> classy)
+    {
+        String tableName = classy.getSimpleName();
+        String query = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'project1' AND table_name = ?);";
+
+        try (Connection conn = (Connection) DBConnector.getInstance())
+        {
+            PreparedStatement statement = conn.prepareStatement(query);
+            statement.setString(1, tableName);
+            ResultSet rs = statement.executeQuery();
+            if (rs.next())
+            {
+                return rs.getBoolean("exists");
+            }
+        }
+        catch (SQLException e)
+        {
+            e.printStackTrace();
+        }
+        return false;
     }
 }

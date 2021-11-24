@@ -6,6 +6,10 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Type;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -133,4 +137,25 @@ public class Orm
         }
         return null;
     }
+
+    public static void deleteByID(String query)
+    {
+        try (Connection conn = (Connection) DBConnector.getInstance())
+        {
+            PreparedStatement pstmt = conn.prepareStatement(query);
+            pstmt.execute();
+        }
+        catch (SQLException e)
+        {
+            e.printStackTrace();
+        }
+    }
+
+    public void dropTable(Class<?> clazz)
+    {
+        if (GenericDao.doesTableExist(clazz))
+            GenericDao.dropTable(clazz);
+    }
+
 }
+
