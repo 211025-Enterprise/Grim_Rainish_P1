@@ -11,6 +11,4 @@ import java.lang.annotation.*;
  */
 public @interface Column
 {
-    public String Name();
-    GrimDBConstraints[] constraints();
 }
